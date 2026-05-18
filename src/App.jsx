@@ -17,12 +17,15 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
   "note_general": "Nota general si aplica"
 }
 
-Reglas:
-- Exactamente 9 resultados (o todos los relevantes si hay menos de 9)
+Reglas OBLIGATORIAS:
+- SIEMPRE devuelve EXACTAMENTE 9 resultados. Nunca menos.
 - death_year: año real de fallecimiento del autor. null si el autor sigue vivo.
-- Notas de máximo 12 palabras
-- Prioriza libros que existan como audiolibros en español
-- Para búsquedas por género o tema, incluye autores variados`;
+- Notas de máximo 12 palabras.
+- Si el usuario busca un título específico: incluye ese libro primero, luego completa con otras obras del mismo autor, libros del mismo género/época y clásicos relacionados hasta llegar a 9.
+- Si el usuario busca un autor: incluye sus obras más conocidas primero, luego completa con autores similares.
+- Si el usuario busca un género o tema: incluye 9 libros variados de distintos autores.
+- Prioriza libros que existan como audiolibros en español.
+- Incluye mezcla de dominio público y contemporáneos cuando sea pertinente.`;
 
 // ─── API call ─────────────────────────────────────────────────────────────────
 async function askClaude(query, excludeTitles = []) {
@@ -317,7 +320,8 @@ export default function App() {
             {status === "done" && results.length > 0 && (
               <>
                 <p className="bv-meta">
-                  <strong>{results.length}</strong> resultado{results.length !== 1 ? "s" : ""} para "{query}"
+                  <strong>{results.length}</strong> resultado{results.length !== 1 ? "s" : ""} para <em>"{query}"</em>
+                  {results.length < 9 && " · y obras relacionadas"}
                 </p>
                 {note && <div className="bv-general-note">{note}</div>}
                 <div className="bv-grid">
