@@ -26,9 +26,11 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
 Reglas:
 - Máximo 6 resultados
 - Notas de máximo 12 palabras
-- URLs con título/autor codificado, no inventadas
-- Si el autor es contemporáneo (post-1930): public_domain false, sources con iVoox y Spotify en lugar de LibriVox
-- Siempre incluye YouTube como fuente`;
+- URLs con título/autor codificado en minúsculas con guiones (no espacios), no inventadas
+- Si el autor es contemporáneo (post-1930): public_domain false, sources con iVoox y Spotify en lugar de LibriVox/Internet Archive
+- Para iVoox SIEMPRE usa este formato exacto: https://www.ivoox.com/buscar_nf_audiolibro-TITULO-AUTOR_1.html (palabras en minúsculas separadas por guiones, incluir "audiolibro" al inicio)
+- Para Spotify: https://open.spotify.com/search/audiolibro%20TITULO%20AUTOR
+- Siempre incluye YouTube como fuente con formato: https://www.youtube.com/results?search_query=audiolibro+TITULO+AUTOR+completo+español`;
 
 // ─── API call ─────────────────────────────────────────────────────────────────
 async function askClaude(query) {
