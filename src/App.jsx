@@ -15,8 +15,8 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
       "note": "Frase breve, máximo 12 palabras",
       "sources": [
         { "label": "Internet Archive", "url": "https://archive.org/search?query=TITULO+AUTOR&mediatype=audio" },
-        { "label": "LibriVox", "url": "https://librivox.org/search?primary_key=TITULO&search_category=title&search_page=1" },
-        { "label": "YouTube", "url": "https://www.youtube.com/results?search_query=audiolibro+TITULO+español+completo" }
+        { "label": "LibriVox", "url": "https://librivox.org/search?q=TITULO&primary_key=0&search_category=title&search_page=1&search_form=get_results" },
+        { "label": "YouTube", "url": "https://www.youtube.com/results?search_query=audiolibro+TITULO+AUTOR+completo+espa%C3%B1ol" }
       ]
     }
   ],
@@ -24,26 +24,31 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
 }
 
 Reglas:
-- Máximo 6 resultados
+- Exactamente 9 resultados (o todos los relevantes si hay menos de 9)
 - Notas de máximo 12 palabras
-- URLs con título/autor codificado en minúsculas con guiones (no espacios), no inventadas
-- Si el autor es contemporáneo (post-1930): public_domain false, sources con iVoox y Spotify en lugar de LibriVox/Internet Archive
-- Para iVoox SIEMPRE usa este formato exacto: https://www.ivoox.com/buscar_nf_audiolibro-TITULO-AUTOR_1.html (palabras en minúsculas separadas por guiones, incluir "audiolibro" al inicio)
+- Espacios en URLs codificados como + (para Archive/YouTube) o %20 (para Spotify)
+- Para obras de dominio público (autor fallecido antes de 1930): incluir Internet Archive + LibriVox + YouTube
+- Para autores contemporáneos (fallecidos después de 1930 o vivos): public_domain false, incluir Spotify + YouTube únicamente
 - Para Spotify: https://open.spotify.com/search/audiolibro%20TITULO%20AUTOR
-- Siempre incluye YouTube como fuente con formato: https://www.youtube.com/results?search_query=audiolibro+TITULO+AUTOR+completo+español`;
+- Para YouTube SIEMPRE: https://www.youtube.com/results?search_query=audiolibro+TITULO+AUTOR+completo+espa%C3%B1ol
+- NO incluyas iVoox en ningún resultado`;
 
 // ─── API call ─────────────────────────────────────────────────────────────────
-async function askClaude(query) {
-  const userMsg = query
+async function askClaude(query, excludeTitles = []) {
+  let userMsg = query
     ? `Busco audiolibros en español de: "${query}"`
-    : `Dame 6 audiolibros clásicos en español muy populares (García Márquez, Neruda, Cervantes, Borges, etc.)`;
+    : `Dame 9 audiolibros clásicos en español muy populares (García Márquez, Neruda, Cervantes, Borges, etc.)`;
+
+  if (excludeTitles.length > 0) {
+    userMsg += `\n\nNo repitas estos títulos ya mostrados: ${excludeTitles.join(", ")}. Dame otros distintos.`;
+  }
 
   const res = await fetch("/api/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 3000,
+      max_tokens: 4000,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userMsg }],
     }),
@@ -92,7 +97,6 @@ const SOURCE_COLORS = {
   "Internet Archive": "#60a5fa",
   "LibriVox":         "#34d399",
   "YouTube":          "#f87171",
-  "iVoox":            "#a78bfa",
   "Spotify":          "#4ade80",
   "AlbaLearning":     "#fbbf24",
 };
@@ -156,18 +160,26 @@ body{background:#0d1117;margin:0;-webkit-font-smoothing:antialiased}
 .bv-src-name{font-size:13px;color:#c7d2fe;margin-bottom:3px}
 .bv-src-desc{font-size:11px;color:#8b949e;font-family:system-ui,sans-serif;line-height:1.4;margin-bottom:8px}
 .bv-src-tag{font-size:9px;font-family:system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6e7681;border:1px solid #21262d;border-radius:4px;padding:2px 5px}
+.bv-load-more{display:flex;justify-content:center;margin-top:24px;padding-bottom:8px}
+.bv-load-btn{background:none;border:1px solid #30363d;border-radius:6px;color:#8b949e;cursor:pointer;font-size:12px;font-family:system-ui,sans-serif;font-weight:500;padding:10px 28px;transition:border-color .15s,color .15s;-webkit-tap-highlight-color:transparent}
+.bv-load-btn:hover{border-color:#818cf8;color:#c7d2fe}
+.bv-load-btn:disabled{opacity:.4;cursor:not-allowed}
 `;
 
 const EXAMPLES = ["El Principito", "García Márquez", "Pablo Neruda", "Don Quijote", "Borges", "Vargas Llosa"];
 
 // ─── App ──────────────────────────────────────────────────────────────────────
+const PAGE_SIZE = 9;
+
 export default function App() {
-  const [tab,     setTab]     = useState("catalog");
-  const [query,   setQuery]   = useState("");
-  const [results, setResults] = useState([]);
-  const [note,    setNote]    = useState("");
-  const [status,  setStatus]  = useState("idle"); // idle | loading | done | error
-  const [error,   setError]   = useState(null);
+  const [tab,         setTab]         = useState("catalog");
+  const [query,       setQuery]       = useState("");
+  const [results,     setResults]     = useState([]);
+  const [note,        setNote]        = useState("");
+  const [status,      setStatus]      = useState("idle"); // idle | loading | done | error
+  const [error,       setError]       = useState(null);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     const el = document.createElement("style");
@@ -181,11 +193,15 @@ export default function App() {
     setStatus("loading");
     setError(null);
     setNote("");
+    setResults([]);
+    setHasMore(false);
     try {
-      const json = await askClaude(q.trim());
-      setResults(json.results || []);
+      const json = await askClaude(q.trim(), []);
+      const res = json.results || [];
+      setResults(res);
       setNote(json.note_general || "");
       setStatus("done");
+      setHasMore(res.length >= PAGE_SIZE);
     } catch (e) {
       setError(e.message);
       setResults([]);
@@ -193,7 +209,22 @@ export default function App() {
     }
   }, []);
 
-  const handleKey   = (e) => { if (e.key === "Enter") doSearch(query); };
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const seen = results.map((r) => r.title);
+      const json = await askClaude(query, seen);
+      const newRes = json.results || [];
+      setResults((prev) => [...prev, ...newRes]);
+      setHasMore(newRes.length >= PAGE_SIZE);
+    } catch {
+      // fail silently — existing results stay visible
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [query, results]);
+
+  const handleKey     = (e) => { if (e.key === "Enter") doSearch(query); };
   const handleExample = (ex) => { setQuery(ex); doSearch(ex); };
 
   const loading = status === "loading";
@@ -299,6 +330,13 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+                {hasMore && (
+                  <div className="bv-load-more">
+                    <button className="bv-load-btn" disabled={loadingMore} onClick={loadMore}>
+                      {loadingMore ? "Cargando más..." : "Cargar más resultados"}
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </>
