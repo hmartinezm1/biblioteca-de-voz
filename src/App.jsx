@@ -8,16 +8,10 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
 {
   "results": [
     {
-      "title": "Título del libro",
-      "author": "Nombre del autor",
-      "year": "año",
-      "public_domain": true,
-      "note": "Frase breve, máximo 12 palabras",
-      "sources": [
-        { "label": "Internet Archive", "url": "https://archive.org/search?query=TITULO+AUTOR&mediatype=audio" },
-        { "label": "LibriVox", "url": "https://librivox.org/search?q=TITULO&primary_key=0&search_category=title&search_page=1&search_form=get_results" },
-        { "label": "YouTube", "url": "https://www.youtube.com/results?search_query=audiolibro+TITULO+AUTOR+completo+espa%C3%B1ol" }
-      ]
+      "title": "Título del libro en español",
+      "author": "Nombre completo del autor",
+      "death_year": 1944,
+      "note": "Frase breve, máximo 12 palabras"
     }
   ],
   "note_general": "Nota general si aplica"
@@ -25,19 +19,16 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
 
 Reglas:
 - Exactamente 9 resultados (o todos los relevantes si hay menos de 9)
+- death_year: año real de fallecimiento del autor. null si el autor sigue vivo.
 - Notas de máximo 12 palabras
-- Espacios en URLs codificados como + (para Archive/YouTube) o %20 (para Spotify)
-- Para obras de dominio público (autor fallecido antes de 1930): incluir Internet Archive + LibriVox + YouTube
-- Para autores contemporáneos (fallecidos después de 1930 o vivos): public_domain false, incluir Spotify + YouTube únicamente
-- Para Spotify: https://open.spotify.com/search/audiolibro%20TITULO%20AUTOR
-- Para YouTube SIEMPRE: https://www.youtube.com/results?search_query=audiolibro+TITULO+AUTOR+completo+espa%C3%B1ol
-- NO incluyas iVoox en ningún resultado`;
+- Prioriza libros que existan como audiolibros en español
+- Para búsquedas por género o tema, incluye autores variados`;
 
 // ─── API call ─────────────────────────────────────────────────────────────────
 async function askClaude(query, excludeTitles = []) {
   let userMsg = query
     ? `Busco audiolibros en español de: "${query}"`
-    : `Dame 9 audiolibros clásicos en español muy populares (García Márquez, Neruda, Cervantes, Borges, etc.)`;
+    : `Dame 9 audiolibros clásicos en español muy populares y variados (Cervantes, García Márquez, Neruda, Borges, Rulfo, etc.)`;
 
   if (excludeTitles.length > 0) {
     userMsg += `\n\nNo repitas estos títulos ya mostrados: ${excludeTitles.join(", ")}. Dame otros distintos.`;
@@ -93,12 +84,38 @@ const SOURCES = [
   { id: "archive",      name: "Internet Archive", desc: "Miles de títulos descargables en MP3",      url: "https://archive.org/search?query=audiolibro&mediatype=audio",                   tag: "Archivo"    },
 ];
 
+// ─── Source URLs (generated client-side from reliable templates) ──────────────
+const PD_CUTOFF = new Date().getFullYear() - 70;
+
+function buildSources(title, author, deathYear) {
+  const pd = deathYear != null && deathYear <= PD_CUTOFF;
+  const t  = encodeURIComponent(title);
+  const a  = encodeURIComponent(author);
+  const tq = title.replace(/\s+/g, "+");
+  const aq = author.replace(/\s+/g, "+");
+
+  if (pd) {
+    return [
+      { label: "AlbaLearning",   url: `https://www.google.com/search?q=site%3Aalbalearning.com+${t}` },
+      { label: "El Libro Total", url: `https://www.google.com/search?q=site%3Aellibrototal.com+${t}` },
+      { label: "LibriVox",       url: `https://librivox.org/search?q=${t}&primary_key=0&search_category=title&search_page=1&search_form=get_results` },
+      { label: "Archive.org",    url: `https://archive.org/search?query=${tq}+${aq}&mediatype=audio` },
+      { label: "YouTube",        url: `https://www.youtube.com/results?search_query=audiolibro+${tq}+completo+espa%C3%B1ol` },
+    ];
+  }
+  return [
+    { label: "Spotify", url: `https://open.spotify.com/search/audiolibro%20${t}%20${a}` },
+    { label: "YouTube", url: `https://www.youtube.com/results?search_query=audiolibro+${tq}+${aq}+completo+espa%C3%B1ol` },
+  ];
+}
+
 const SOURCE_COLORS = {
-  "Internet Archive": "#60a5fa",
-  "LibriVox":         "#34d399",
-  "YouTube":          "#f87171",
-  "Spotify":          "#4ade80",
-  "AlbaLearning":     "#fbbf24",
+  "AlbaLearning":   "#fbbf24",
+  "El Libro Total": "#a78bfa",
+  "LibriVox":       "#34d399",
+  "Archive.org":    "#60a5fa",
+  "YouTube":        "#f87171",
+  "Spotify":        "#4ade80",
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -298,37 +315,41 @@ export default function App() {
                 </p>
                 {note && <div className="bv-general-note">{note}</div>}
                 <div className="bv-grid">
-                  {results.map((r, i) => (
+                  {results.map((r, i) => {
+                    const pd      = r.death_year != null && r.death_year <= PD_CUTOFF;
+                    const sources = buildSources(r.title, r.author, r.death_year);
+                    return (
                     <div className="bv-card" key={i}>
                       <p className="bv-card-title">{r.title}</p>
                       <div className="bv-card-meta">
-                        <span className="bv-card-author">{r.author}{r.year ? ` · ${r.year}` : ""}</span>
-                        <span className={`bv-pd-badge ${r.public_domain ? "bv-pd-yes" : "bv-pd-no"}`}>
-                          {r.public_domain ? "Dominio público" : "Contemporáneo"}
+                        <span className="bv-card-author">
+                          {r.author}{r.death_year ? ` · †${r.death_year}` : ""}
+                        </span>
+                        <span className={`bv-pd-badge ${pd ? "bv-pd-yes" : "bv-pd-no"}`}>
+                          {pd ? "Dominio público" : "Contemporáneo"}
                         </span>
                       </div>
                       {r.note && <p className="bv-card-note">{r.note}</p>}
-                      {r.sources?.length > 0 && (
-                        <div className="bv-card-sources">
-                          {r.sources.map((s, j) => {
-                            const color = SOURCE_COLORS[s.label] || "#7a7a7a";
-                            return (
-                              <a
-                                key={j}
-                                className="bv-src-link"
-                                href={s.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ color, borderColor: color + "55" }}
-                              >
-                                {s.label} →
-                              </a>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <div className="bv-card-sources">
+                        {sources.map((s, j) => {
+                          const color = SOURCE_COLORS[s.label] || "#8b949e";
+                          return (
+                            <a
+                              key={j}
+                              className="bv-src-link"
+                              href={s.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color, borderColor: color + "55" }}
+                            >
+                              {s.label} →
+                            </a>
+                          );
+                        })}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {hasMore && (
                   <div className="bv-load-more">
