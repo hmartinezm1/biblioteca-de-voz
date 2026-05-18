@@ -96,8 +96,8 @@ function buildSources(title, author, deathYear) {
 
   if (pd) {
     return [
-      { label: "AlbaLearning",   url: `https://www.google.com/search?q=site%3Aalbalearning.com+${t}` },
-      { label: "El Libro Total", url: `https://www.google.com/search?q=site%3Aellibrototal.com+${t}` },
+      { label: "AlbaLearning",   url: `https://albalearning.com/ListadoObras.aspx?Palabras=${t}` },
+      { label: "El Libro Total", url: `https://www.ellibrototal.com/ltotal/?t=8&d=buscar,0&words=${t}` },
       { label: "LibriVox",       url: `https://librivox.org/search?q=${t}&primary_key=0&search_category=title&search_page=1&search_form=get_results` },
       { label: "Archive.org",    url: `https://archive.org/search?query=${tq}+${aq}&mediatype=audio` },
       { label: "YouTube",        url: `https://www.youtube.com/results?search_query=audiolibro+${tq}+completo+espa%C3%B1ol` },
