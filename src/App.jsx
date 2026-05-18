@@ -214,13 +214,15 @@ export default function App() {
     setHasMore(false);
     try {
       const json = await askClaude(q.trim(), []);
-      const res = json.results || [];
+      console.log("[BV] respuesta de Claude:", json);
+      const res = Array.isArray(json.results) ? json.results : [];
       setResults(res);
       setNote(json.note_general || "");
       setStatus("done");
       setHasMore(res.length >= PAGE_SIZE);
     } catch (e) {
-      setError(e.message);
+      console.error("[BV] error en búsqueda:", e);
+      setError(e.message || "Error desconocido");
       setResults([]);
       setStatus("error");
     }
@@ -245,12 +247,13 @@ export default function App() {
   const handleExample = (ex) => { setQuery(ex); doSearch(ex); };
 
   const loading = status === "loading";
+  const isDev = import.meta.env.DEV;
 
   return (
     <div className="bv">
       {/* Header */}
       <div className="bv-head">
-        <p className="bv-kicker">Centro de Audiolibros en Español</p>
+        <p className="bv-kicker">Centro de Audiolibros en Español{isDev && <span style={{marginLeft:8,color:"#f87171"}}>[dev · status:{status}]</span>}</p>
         <h1 className="bv-title">Biblioteca <em>de Voz</em></h1>
         <div className="bv-search">
           <input
@@ -301,7 +304,10 @@ export default function App() {
             )}
 
             {status === "error" && (
-              <div className="bv-err">Error: {error}</div>
+              <div className="bv-err">
+                <strong>Error al buscar</strong><br/>
+                {error || "Error desconocido — revisa la consola del navegador (F12 → Console)"}
+              </div>
             )}
 
             {status === "done" && results.length === 0 && (
