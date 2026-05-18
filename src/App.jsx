@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Eres un experto en audiolibros en español. El usuario busca audiolibros gratuitos en español.
+const SYSTEM_PROMPT = `Eres un experto en audiolibros en español con conocimiento detallado de qué títulos están disponibles en cada plataforma gratuita.
 
 Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
 
@@ -11,21 +11,31 @@ Devuelves ÚNICAMENTE un JSON válido, sin markdown, sin texto adicional:
       "title": "Título del libro en español",
       "author": "Nombre completo del autor",
       "death_year": 1944,
-      "note": "Frase breve, máximo 12 palabras"
+      "note": "Frase breve, máximo 12 palabras",
+      "platforms": ["albalearning", "librivox", "youtube"]
     }
   ],
   "note_general": "Nota general si aplica"
 }
 
+Plataformas disponibles y sus catálogos:
+- "albalearning": AlbaLearning — clásicos en español leídos en español, fuerte en literatura hispanoamericana y española clásica (Cervantes, Lorca, Neruda, etc.)
+- "librototal": El Libro Total — obras de dominio público, principalmente literatura clásica en español
+- "librivox": LibriVox — dominio público grabado por voluntarios, muchas obras en español especialmente traducidas del inglés/francés
+- "archive": Internet Archive — archivo amplio, incluir cuando el libro es de dominio público y es conocido
+- "youtube": YouTube — siempre disponible, incluir en todos los resultados
+- "spotify": Spotify — obras contemporáneas con derechos de autor
+
 Reglas OBLIGATORIAS:
 - SIEMPRE devuelve EXACTAMENTE 9 resultados. Nunca menos.
-- death_year: año real de fallecimiento del autor. null si el autor sigue vivo.
+- death_year: año real de fallecimiento del autor. null si vive.
 - Notas de máximo 12 palabras.
-- Si el usuario busca un título específico: incluye ese libro primero, luego completa con otras obras del mismo autor, libros del mismo género/época y clásicos relacionados hasta llegar a 9.
-- Si el usuario busca un autor: incluye sus obras más conocidas primero, luego completa con autores similares.
-- Si el usuario busca un género o tema: incluye 9 libros variados de distintos autores.
-- Prioriza libros que existan como audiolibros en español.
-- Incluye mezcla de dominio público y contemporáneos cuando sea pertinente.`;
+- platforms: incluye SOLO las plataformas donde el libro está razonablemente disponible.
+  * "youtube" va SIEMPRE en todos los resultados.
+  * Para obras contemporáneas (death_year null o > 1955): solo ["spotify", "youtube"].
+  * Para dominio público: elige de ["albalearning","librototal","librivox","archive","youtube"] según tu conocimiento real del catálogo de cada una. No incluyas una plataforma si no estás seguro de que tenga el título.
+- Si el usuario busca un título: ese libro primero, luego obras del mismo autor y género hasta 9.
+- Si el usuario busca un autor: sus obras más conocidas, luego autores similares hasta 9.`;
 
 // ─── API call ─────────────────────────────────────────────────────────────────
 async function askClaude(query, excludeTitles = []) {
@@ -90,26 +100,46 @@ const SOURCES = [
 // ─── Source URLs (generated client-side from reliable templates) ──────────────
 const PD_CUTOFF = new Date().getFullYear() - 70;
 
-function buildSources(title, author, deathYear) {
-  const pd = deathYear != null && deathYear <= PD_CUTOFF;
+const PLATFORM_BUILDERS = {
+  albalearning: (t, _a, tq, _aq) => ({
+    label: "AlbaLearning",
+    url: `https://albalearning.com/ListadoObras.aspx?Palabras=${t}`,
+  }),
+  librototal: (t, _a, _tq, _aq) => ({
+    label: "El Libro Total",
+    url: `https://www.ellibrototal.com/ltotal/?t=8&d=buscar,0&words=${t}`,
+  }),
+  librivox: (t, _a, _tq, _aq) => ({
+    label: "LibriVox",
+    url: `https://librivox.org/search?q=${t}&primary_key=0&search_category=title&search_page=1&search_form=get_results`,
+  }),
+  archive: (_t, _a, tq, aq) => ({
+    label: "Archive.org",
+    url: `https://archive.org/search?query=${tq}+${aq}&mediatype=audio`,
+  }),
+  youtube: (_t, _a, tq, aq) => ({
+    label: "YouTube",
+    url: `https://www.youtube.com/results?search_query=audiolibro+${tq}+${aq}+completo+espa%C3%B1ol`,
+  }),
+  spotify: (t, a, _tq, _aq) => ({
+    label: "Spotify",
+    url: `https://open.spotify.com/search/audiolibro%20${t}%20${a}`,
+  }),
+};
+
+function buildSources(title, author, platforms) {
   const t  = encodeURIComponent(title);
   const a  = encodeURIComponent(author);
   const tq = title.replace(/\s+/g, "+");
   const aq = author.replace(/\s+/g, "+");
 
-  if (pd) {
-    return [
-      { label: "AlbaLearning",   url: `https://albalearning.com/ListadoObras.aspx?Palabras=${t}` },
-      { label: "El Libro Total", url: `https://www.ellibrototal.com/ltotal/?t=8&d=buscar,0&words=${t}` },
-      { label: "LibriVox",       url: `https://librivox.org/search?q=${t}&primary_key=0&search_category=title&search_page=1&search_form=get_results` },
-      { label: "Archive.org",    url: `https://archive.org/search?query=${tq}+${aq}&mediatype=audio` },
-      { label: "YouTube",        url: `https://www.youtube.com/results?search_query=audiolibro+${tq}+completo+espa%C3%B1ol` },
-    ];
-  }
-  return [
-    { label: "Spotify", url: `https://open.spotify.com/search/audiolibro%20${t}%20${a}` },
-    { label: "YouTube", url: `https://www.youtube.com/results?search_query=audiolibro+${tq}+${aq}+completo+espa%C3%B1ol` },
-  ];
+  const list = Array.isArray(platforms) && platforms.length > 0
+    ? platforms
+    : ["youtube"];
+
+  return list
+    .filter((id) => PLATFORM_BUILDERS[id])
+    .map((id) => PLATFORM_BUILDERS[id](t, a, tq, aq));
 }
 
 const SOURCE_COLORS = {
@@ -327,7 +357,7 @@ export default function App() {
                 <div className="bv-grid">
                   {results.map((r, i) => {
                     const pd      = r.death_year != null && r.death_year <= PD_CUTOFF;
-                    const sources = buildSources(r.title, r.author, r.death_year);
+                    const sources = buildSources(r.title, r.author, r.platforms);
                     return (
                     <div className="bv-card" key={i}>
                       <p className="bv-card-title">{r.title}</p>
